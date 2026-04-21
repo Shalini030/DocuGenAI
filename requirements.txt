@@ -1,6 +1,4 @@
 groq
 streamlit
-reportlabgroq
-streamlit
 reportlab
 rouge-score
