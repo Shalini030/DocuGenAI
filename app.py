@@ -1,6 +1,7 @@
 import streamlit as st
-from model import generate_documentation, generate_readme
+from model import generate_documentation, generate_readme, answer_code_question, evaluate_scores, evaluate_llm_metrics
 from utils import generate_pdf
+from analyzer import detect_project_type, code_quality_score, build_mermaid_diagram
 import zipfile
 import io
 import re
@@ -111,6 +112,90 @@ html, body, [class*="css"] {
     height: 1px;
     background: linear-gradient(90deg, #334155, transparent);
 }
+
+/* ── NEW: Quality score bar ────────────────────────────────────────────────── */
+.quality-bar-wrap {
+    background: #1e293b;
+    border-radius: 999px;
+    height: 10px;
+    width: 100%;
+    margin: 4px 0 2px 0;
+    overflow: hidden;
+}
+.quality-bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.6s ease;
+}
+.quality-pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── NEW: Project-type badge ───────────────────────────────────────────────── */
+.ptype-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #312e81, #1e1b4b);
+    border: 1px solid #4f46e5;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #a5b4fc;
+    margin-bottom: 16px;
+}
+
+/* ── NEW: Chat bubble styles ───────────────────────────────────────────────── */
+.chat-user {
+    background: #1e293b;
+    border-left: 3px solid #6366f1;
+    border-radius: 0 10px 10px 0;
+    padding: 10px 14px;
+    margin: 8px 0;
+    font-size: 14px;
+    color: #e2e8f0;
+}
+.chat-ai {
+    background: #0f172a;
+    border-left: 3px solid #10b981;
+    border-radius: 0 10px 10px 0;
+    padding: 10px 14px;
+    margin: 8px 0;
+    font-size: 14px;
+    color: #cbd5e1;
+}
+/* ── NEW: NLP score metric cards ──────────────────────────────────────────── */
+.score-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 10px;
+    margin: 14px 0 20px 0;
+}
+.score-card {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 10px;
+    padding: 12px 8px;
+    text-align: center;
+}
+.score-card:hover { border-color: #6366f1; }
+.score-metric { font-size: 18px; font-weight: 700; color: #f1f5f9; font-family: 'JetBrains Mono', monospace; }
+.score-label  { font-size: 10px; color: #64748b; margin-top: 3px; letter-spacing: 0.06em; text-transform: uppercase; }
+.score-badge  {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -216,7 +301,7 @@ if all_code:
 
     if detected_langs:
         badges = "".join(
-            f'<span class="lang-badge">{'●'} {lang} <span style="color:#64748b">({count})</span></span>'
+            f'<span class="lang-badge">{"●"} {lang} <span style="color:#64748b">({count})</span></span>'
             for lang, count in sorted(detected_langs.items(), key=lambda x: -x[1])
         )
         st.markdown(f'<div class="lang-badges">{badges}</div>', unsafe_allow_html=True)
@@ -226,6 +311,87 @@ if all_code:
         for fname, code in all_code.items():
             lc = len(code.split("\n"))
             st.markdown(f"`{fname}` — {lc} lines")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # NEW FEATURE 1 — Auto-detect Project Type
+    # ══════════════════════════════════════════════════════════════════════════
+    project_type, project_type_hint = detect_project_type(all_code)
+
+    st.markdown('<div class="section-header">🔍 Project Type</div>', unsafe_allow_html=True)
+
+    TYPE_ICONS = {
+        "Flask API": "🌶️", "FastAPI Service": "⚡", "Django Web App": "🦄",
+        "React App": "⚛️", "ML / Data Pipeline": "🤖", "Streamlit App": "🎈",
+        "CLI Tool": "💻", "Node.js / Express": "🟩", "General Python Project": "🐍",
+    }
+    icon = TYPE_ICONS.get(project_type, "📦")
+    st.markdown(
+        f'<div class="ptype-badge">{icon} Auto-detected: <span style="color:#e0e7ff">{project_type}</span></div>',
+        unsafe_allow_html=True
+    )
+    if project_type_hint:
+        st.markdown(f"<p style='color:#64748b;font-size:12px;margin:-8px 0 12px 4px'>{project_type_hint}</p>",
+                    unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # NEW FEATURE 2 — Code Quality Score
+    # ══════════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="section-header">🏆 Code Quality Score</div>', unsafe_allow_html=True)
+
+    quality = code_quality_score(all_code)
+    score   = quality["score"]
+    grade   = quality["grade"]
+
+    GRADE_COLOR = {"A": "#10b981", "B": "#06b6d4", "C": "#f59e0b", "D": "#f97316", "F": "#ef4444"}
+    bar_color   = GRADE_COLOR.get(grade, "#6366f1")
+
+    qcol1, qcol2 = st.columns([3, 1])
+    with qcol1:
+        st.markdown(f"""
+        <div style="margin-bottom:8px">
+            <span style="font-size:13px;color:#94a3b8">Overall Score</span>
+            <span style="float:right;font-size:13px;color:{bar_color};font-weight:700">{score}/100</span>
+        </div>
+        <div class="quality-bar-wrap">
+            <div class="quality-bar-fill" style="width:{score}%;background:{bar_color}"></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Breakdown bars
+        for label, (s, mx, detail) in quality["breakdown"].items():
+            pct = int((s / mx) * 100)
+            st.markdown(f"""
+            <div style="margin:6px 0 2px 0;font-size:11px;color:#94a3b8">
+                {label}
+                <span style="float:right;color:#64748b">{s}/{mx} — {detail}</span>
+            </div>
+            <div class="quality-bar-wrap">
+                <div class="quality-bar-fill" style="width:{pct}%;background:{bar_color};opacity:0.7"></div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    with qcol2:
+        st.markdown(f"""
+        <div style="text-align:center;padding:20px 0">
+            <div style="font-size:56px;font-weight:900;color:{bar_color};line-height:1">{grade}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:4px">Grade</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with st.expander("🔎 Code Smell Details"):
+        for smell in quality["smells"]:
+            st.markdown(f"- {smell}")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # NEW FEATURE 3 — Auto-generated Mermaid Diagram
+    # ══════════════════════════════════════════════════════════════════════════
+    mermaid_src = build_mermaid_diagram(all_code)
+    if mermaid_src:
+        st.markdown('<div class="section-header">🗺️ Function Call Diagram</div>', unsafe_allow_html=True)
+        with st.expander("📐 View auto-generated Mermaid diagram (paste into mermaid.live)"):
+            st.markdown(mermaid_src)
+            st.caption("💡 Copy the block above and paste it at [mermaid.live](https://mermaid.live) to view the interactive diagram.")
+
 
 # ─── Report Type Selector ──────────────────────────────────────────────────────
 st.markdown('<div class="section-header">📋 Report Type</div>', unsafe_allow_html=True)
@@ -269,9 +435,16 @@ if generate_btn:
     project_name   = custom_name.strip() if uploaded_files and custom_name.strip() else None
     extra_context  = custom_desc.strip()  if uploaded_files and custom_desc.strip()  else ""
 
+    # Pull detected project type from earlier analysis (may be unset if no files)
+    ptype      = project_type      if all_code else ""
+    ptype_hint = project_type_hint if all_code else ""
+
     with st.spinner(f"🤖 Generating {report_type}..."):
-        report = generate_documentation(combined_code, project_name, extra_context, report_type)
-        readme = generate_readme(combined_code, project_name, extra_context)
+        report = generate_documentation(
+            combined_code, project_name, extra_context, report_type,
+            project_type=ptype, project_type_hint=ptype_hint
+        )
+        readme = generate_readme(combined_code, project_name, extra_context, project_type=ptype)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -280,6 +453,154 @@ if generate_btn:
     with col2:
         st.markdown('<div class="section-header">📗 README Preview</div>', unsafe_allow_html=True)
         st.markdown(readme)
+
+    # ── NLP Evaluation Scores ──────────────────────────────────────────────────
+    st.markdown('<div class="section-header">📐 Model Evaluation Scores</div>', unsafe_allow_html=True)
+    st.markdown(
+        "<p style='color:#94a3b8;font-size:12px;margin:-8px 0 12px 0'>"
+        "ROUGE &amp; BLEU measure n-gram overlap with source code. "
+        "Hallucination, Bias &amp; Fairness are evaluated by the LLM itself acting as an impartial judge (LLM-as-a-Judge)."
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
+    def _score_color(val: float) -> str:
+        if val >= 0.5:  return "#10b981"
+        if val >= 0.3:  return "#f59e0b"
+        return "#ef4444"
+
+    def _score_label(val: float) -> str:
+        if val >= 0.5:  return "Good"
+        if val >= 0.3:  return "Fair"
+        return "Low"
+
+    with st.spinner("📊 Computing evaluation scores..."):
+        report_scores = evaluate_scores(report,  combined_code)
+        readme_scores  = evaluate_scores(readme,  combined_code)
+
+    with st.spinner("🧠 Running LLM-as-a-Judge evaluation..."):
+        report_llm = evaluate_llm_metrics(report, combined_code)
+        readme_llm  = evaluate_llm_metrics(readme,  combined_code)
+
+    llm_scores_map = {"Report": report_llm, "README": readme_llm}
+
+    score_tab1, score_tab2 = st.tabs(["📘 Report Scores", "📗 README Scores"])
+
+    for tab, sc, label in [
+        (score_tab1, report_scores, "Report"),
+        (score_tab2, readme_scores,  "README"),
+    ]:
+        with tab:
+            # ── Standard metrics (higher = better) ────────────────────────────
+            metrics = [
+                ("ROUGE-1 P",  sc["rouge1_p"], "Precision",  _score_color, _score_label),
+                ("ROUGE-1 R",  sc["rouge1_r"], "Recall",     _score_color, _score_label),
+                ("ROUGE-1 F",  sc["rouge1_f"], "F1-Score",   _score_color, _score_label),
+                ("ROUGE-L P",  sc["rougeL_p"], "Precision",  _score_color, _score_label),
+                ("ROUGE-L R",  sc["rougeL_r"], "Recall",     _score_color, _score_label),
+                ("ROUGE-L F",  sc["rougeL_f"], "F1-Score",   _score_color, _score_label),
+                ("BLEU",       sc["bleu"],      "4-gram",     _score_color, _score_label),
+            ]
+            cards_html = '<div class="score-grid">'
+            for name, val, sublabel, color_fn, label_fn in metrics:
+                color = color_fn(val)
+                badge = label_fn(val)
+                pct   = f"{val:.2%}"
+                cards_html += f"""
+                <div class="score-card">
+                    <div class="score-metric" style="color:{color}">{pct}</div>
+                    <div class="score-label">{name}</div>
+                    <div style="font-size:9px;color:#475569">{sublabel}</div>
+                    <span class="score-badge" style="background:{color}22;color:{color}">{badge}</span>
+                </div>"""
+            cards_html += "</div>"
+            st.markdown(cards_html, unsafe_allow_html=True)
+
+            # ── LLM-as-a-Judge metrics ────────────────────────────────────────
+            st.markdown(
+                "<div style='font-size:11px;color:#64748b;margin:4px 0 6px 0;letter-spacing:0.06em'>"
+                "▸ LLM-AS-A-JUDGE METRICS</div>",
+                unsafe_allow_html=True
+            )
+            lm = llm_scores_map[label]
+            hal_val  = lm["hallucination"]   # lower is better
+            bias_val = lm["bias"]             # lower is better
+            fair_val = lm["fairness"]         # higher is better
+
+            # Hallucination & Bias: LOWER = better (inverted colors)
+            def _inv_color(v):
+                if v <= 0.2: return "#10b981"   # green  = low rate = good
+                if v <= 0.5: return "#f59e0b"   # amber
+                return "#ef4444"                 # red    = high rate = bad
+            def _inv_label(v):
+                if v <= 0.2: return "✅ Low"
+                if v <= 0.5: return "⚠️ Medium"
+                return "🔴 High"
+
+            # Fairness: HIGHER = better (normal colors)
+            def _llm_color(v):
+                if v >= 0.7: return "#10b981"
+                if v >= 0.4: return "#f59e0b"
+                return "#ef4444"
+            def _llm_label(v):
+                if v >= 0.7: return "✅ Good"
+                if v >= 0.4: return "⚠️ Fair"
+                return "🔴 Poor"
+
+            llm_html = f"""
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
+                <div class="score-card" style="border-color:#4f46e5">
+                    <div class="score-metric" style="color:{_inv_color(hal_val)}">{hal_val:.0%}</div>
+                    <div class="score-label">Hallucination Rate</div>
+                    <div style="font-size:9px;color:#475569">Lower is Better ↓</div>
+                    <span class="score-badge" style="background:{_inv_color(hal_val)}22;color:{_inv_color(hal_val)}">{_inv_label(hal_val)}</span>
+                </div>
+                <div class="score-card" style="border-color:#4f46e5">
+                    <div class="score-metric" style="color:{_inv_color(bias_val)}">{bias_val:.0%}</div>
+                    <div class="score-label">Bias Rate</div>
+                    <div style="font-size:9px;color:#475569">Lower is Better ↓</div>
+                    <span class="score-badge" style="background:{_inv_color(bias_val)}22;color:{_inv_color(bias_val)}">{_inv_label(bias_val)}</span>
+                </div>
+                <div class="score-card" style="border-color:#4f46e5">
+                    <div class="score-metric" style="color:{_llm_color(fair_val)}">{fair_val:.0%}</div>
+                    <div class="score-label">Fairness</div>
+                    <div style="font-size:9px;color:#475569">Higher is Better ↑</div>
+                    <span class="score-badge" style="background:{_llm_color(fair_val)}22;color:{_llm_color(fair_val)}">{_llm_label(fair_val)}</span>
+                </div>
+            </div>"""
+            st.markdown(llm_html, unsafe_allow_html=True)
+
+            # Judge reasoning expander
+            with st.expander("🧠 Judge Reasoning"):
+                st.markdown(f"""
+| Metric | Score | Direction | Judge's Reasoning |
+|--------|-------|-----------|-------------------|
+| **Hallucination Rate** | `{hal_val:.0%}` | Lower = better | {lm['hallucination_reason']} |
+| **Bias Rate** | `{bias_val:.0%}` | Lower = better | {lm['bias_reason']} |
+| **Fairness** | `{fair_val:.0%}` | Higher = better | {lm['fairness_reason']} |
+
+> Evaluated by the LLM itself acting as an impartial judge (LLM-as-a-Judge pattern).
+> **Hallucination & Bias: 0% = perfect. Fairness: 100% = perfect.**
+""")
+
+            # Expandable interpretation
+            with st.expander(f"ℹ️ How to read {label} scores"):
+                st.markdown(f"""
+| Metric | Type | What it measures | Your score |
+|--------|------|-----------------|------------|
+| **ROUGE-1 P** | Statistical | % of report words found in source code | `{sc['rouge1_p']:.2%}` |
+| **ROUGE-1 R** | Statistical | % of source code words covered in report | `{sc['rouge1_r']:.2%}` |
+| **ROUGE-1 F1** | Statistical | Harmonic mean of P & R | `{sc['rouge1_f']:.2%}` |
+| **ROUGE-L P** | Statistical | Longest common subsequence precision | `{sc['rougeL_p']:.2%}` |
+| **ROUGE-L R** | Statistical | Longest common subsequence recall | `{sc['rougeL_r']:.2%}` |
+| **ROUGE-L F1** | Statistical | LCS F1 — captures phrase-level overlap | `{sc['rougeL_f']:.2%}` |
+| **BLEU** | Statistical | 4-gram overlap (fluency + faithfulness) | `{sc['bleu']:.2%}` |
+| **Hallucination Rate** | LLM Judge | How much did the model fabricate content not in source code? **(lower = better, 0% = perfect)** | `{llm_scores_map[label]['hallucination']:.0%}` |
+| **Bias Rate** | LLM Judge | How much does coverage unfairly emphasise certain parts? **(lower = better, 0% = perfect)** | `{llm_scores_map[label]['bias']:.0%}` |
+| **Fairness** | LLM Judge | Are all files/modules covered proportionally? **(higher = better, 100% = perfect)** | `{llm_scores_map[label]['fairness']:.0%}` |
+
+> **LLM-as-a-Judge** uses the model itself as an evaluator — the same approach used by RAGAS, DeepEval, and OpenAI Evals. Scores are on a 0–10 scale normalised to 0–100%. Higher is always better for all three.
+""")
 
     with st.spinner("📄 Building PDFs..."):
         report_pdf = generate_pdf(report, "project_report.pdf")
@@ -295,3 +616,63 @@ if generate_btn:
             st.download_button("📥 README PDF", f, file_name="readme.pdf", mime="application/pdf", use_container_width=True)
     with c3:
         st.download_button("📥 README.md", readme, file_name="README.md", mime="text/markdown", use_container_width=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NEW FEATURE 4 — Codebase Q&A Chat
+# ══════════════════════════════════════════════════════════════════════════════
+if all_code:
+    st.divider()
+    st.markdown('<div class="section-header">💬 Ask Your Codebase</div>', unsafe_allow_html=True)
+    st.markdown(
+        "<p style='color:#94a3b8;font-size:13px;margin:-8px 0 16px 0'>"
+        "🤖 Ask anything about your uploaded code — functions, logic, architecture, bugs…"
+        "</p>",
+        unsafe_allow_html=True
+    )
+
+    # Initialise chat history in session state
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    # Build combined code for Q&A (larger window than report)
+    if "qa_code_context" not in st.session_state or st.session_state.get("qa_files") != list(all_code.keys()):
+        qa_context = ""
+        for fname, code in all_code.items():
+            qa_context += f"\n\n### File: {fname}\n```\n{code[:5000]}\n```"
+        st.session_state.qa_code_context = qa_context
+        st.session_state.qa_files        = list(all_code.keys())
+
+    # Render existing chat history
+    for turn in st.session_state.chat_history:
+        if turn["role"] == "user":
+            st.markdown(f'<div class="chat-user">🧑 {turn["content"]}</div>', unsafe_allow_html=True)
+        else:
+            st.markdown(f'<div class="chat-ai">🤖 {turn["content"]}</div>', unsafe_allow_html=True)
+
+    # Input row
+    qchat1, qchat2 = st.columns([5, 1])
+    with qchat1:
+        user_q = st.text_input(
+            "Your question",
+            placeholder='e.g. "What does generate_pdf do?" or "How is authentication handled?"',
+            label_visibility="collapsed",
+            key="qa_input"
+        )
+    with qchat2:
+        ask_btn = st.button("Ask →", use_container_width=True, key="qa_ask")
+
+    if ask_btn and user_q.strip():
+        with st.spinner("🤖 Thinking..."):
+            answer = answer_code_question(
+                question     = user_q.strip(),
+                code_context = st.session_state.qa_code_context,
+                chat_history = st.session_state.chat_history,
+            )
+        st.session_state.chat_history.append({"role": "user",      "content": user_q.strip()})
+        st.session_state.chat_history.append({"role": "assistant",  "content": answer})
+        st.rerun()
+
+    if st.session_state.chat_history:
+        if st.button("🗑️ Clear Chat", key="qa_clear"):
+            st.session_state.chat_history = []
+            st.rerun()
