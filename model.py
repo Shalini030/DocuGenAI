@@ -30,67 +30,97 @@ def _call(prompt: str, max_tokens: int = 4096) -> str:
     return response.choices[0].message.content
 
 
+# ── Shared grounding rules injected into every report prompt ───────────────────
+GROUNDING_RULES = """
+CRITICAL RULES TO FOLLOW (these affect evaluation scores — follow strictly):
+
+1. ANTI-HALLUCINATION — Only write what is directly in the code:
+   - Every function name you mention MUST exist in the uploaded code. Do NOT invent function names.
+   - Every module, class, or file you reference MUST appear in the uploaded files.
+   - Do NOT assume frameworks, libraries, or features not explicitly imported or used in the code.
+   - If something is unclear, say "as implemented in [filename]" rather than guessing.
+   - Never make up version numbers, performance benchmarks, or metrics not in the code.
+
+2. FAIRNESS — Cover ALL uploaded files proportionally:
+   - You MUST mention every uploaded file at least once by name.
+   - Give roughly equal depth of coverage to each file — do not focus only on the largest file.
+   - If there are helper files, utility modules, or config files, include them explicitly.
+   - List all files covered in the System Architecture or Modules section.
+
+3. ACCURACY — Be precise:
+   - Quote actual function signatures when describing implementation (e.g. `generate_pdf(content, filename)`).
+   - Reference actual variable names, routes, or class names from the code.
+   - Describe what the code ACTUALLY does, not what a generic project of this type would do.
+"""
+
 # ── Report type → prompt instructions ──────────────────────────────────────────
 REPORT_PROMPTS = {
     "Final Year Project Report": """
 Generate a comprehensive **Final Year Project Report** in formal academic Markdown format.
-Include ALL of these sections:
-1. Project Title
-2. Abstract (150–200 words)
-3. Introduction (problem statement, motivation, objectives)
-4. Literature Review / Related Work (3–5 references)
-5. System Architecture
-6. Modules / Features
-7. Tech Stack
-8. Implementation Details
-9. Results & Discussion
-10. Conclusion
-11. Future Scope
-12. References
-""",
-    "Internship Report": """
-Generate a professional **Internship Report** in Markdown format.
-Include ALL of these sections:
-1. Title Page (Project/Company/Duration)
-2. Executive Summary
-3. Introduction & Internship Objectives
-4. Company/Project Overview
-5. Work Done Week-by-Week (summarize tasks)
-6. Technologies & Tools Used
-7. Key Learnings & Skills Gained
-8. Challenges & How They Were Resolved
-9. Conclusion
-10. Future Recommendations
-""",
-    "Research Paper": """
-Generate an **IEEE/ACM-style Research Paper** in Markdown format.
-Include ALL of these sections:
-1. Title & Authors (use placeholders)
-2. Abstract (200 words, structured: background, method, result, conclusion)
-3. Keywords
-4. I. Introduction
-5. II. Related Work (cite 5+ real frameworks/papers relevant to the tech)
-6. III. Proposed Methodology / System Design
-7. IV. Implementation
-8. V. Experimental Results & Evaluation
-9. VI. Discussion
-10. VII. Conclusion & Future Work
-11. References (IEEE format)
-""",
-    "Technical Blog Post": """
-Generate an engaging **Technical Blog Post** in Markdown format, suitable for dev.to or Medium.
-Include:
-1. Catchy Title with emoji
-2. Hook paragraph (why this matters)
-3. What We Built (brief overview)
-4. Tech Stack (with why each was chosen)
-5. How It Works (walkthrough with code snippets)
-6. Key Challenges & Solutions
-7. Demo / Results
-8. What's Next
-9. Conclusion & Call to Action (share/star/contribute)
+Include ALL of these sections, referencing the actual code for each:
 
-Keep it conversational, use first-person, add humor where appropriate.
+1. **Project Title** — infer from the code/filenames
+2. **Abstract** (150–200 words) — summarise what the code actually does
+3. **Introduction** — state the real problem this code solves, based on what you see
+4. **Literature Review / Related Work** — mention only libraries/frameworks actually imported in the code
+5. **System Architecture** — describe how the actual files interact with each other; list every file
+6. **Modules / Features** — one subsection per uploaded file, describing its real functions
+7. **Tech Stack** — only list technologies actually used (imports, requirements, etc.)
+8. **Implementation Details** — reference real function names and logic from the code
+9. **Results & Discussion** — describe what the system produces based on the code's output logic
+10. **Conclusion** — summarise based only on what was implemented
+11. **Future Scope** — suggest extensions that are natural given the existing codebase
+12. **References** — only cite libraries/frameworks that appear in the code
+""",
+
+    "Internship Report": """
+Generate a professional **Internship Report** in Markdown format based strictly on the uploaded code.
+Include ALL of these sections:
+
+1. **Title Page** — Project name (from code), Duration (use placeholder), Role: Developer
+2. **Executive Summary** — what this codebase does in 3–4 sentences, grounded in the code
+3. **Introduction & Internship Objectives** — objectives that match what the code actually implements
+4. **Project Overview** — describe the real system: list every file and its role
+5. **Work Done** — describe tasks file by file: what each module does, what functions were written
+6. **Technologies & Tools Used** — only from actual imports and requirements
+7. **Key Learnings & Skills Gained** — infer from the actual tech stack used
+8. **Challenges & How They Were Resolved** — base on real complexity visible in the code
+9. **Conclusion** — based on what was actually built
+10. **Future Recommendations** — natural extensions of the existing code
+""",
+
+    "Research Paper": """
+Generate an **IEEE/ACM-style Research Paper** in Markdown format grounded in the uploaded code.
+Include ALL of these sections:
+
+1. **Title & Authors** — title inferred from code purpose; authors: [Your Name], [Institution]
+2. **Abstract** (200 words) — background, method (based on actual code), result, conclusion
+3. **Keywords** — from actual technologies used in the code
+4. **I. Introduction** — problem statement matching what the code addresses
+5. **II. Related Work** — only cite frameworks/libraries that appear in the code imports
+6. **III. Proposed Methodology / System Design** — describe the real architecture; mention every file
+7. **IV. Implementation** — reference actual functions, classes, and logic from the code
+8. **V. Experimental Results & Evaluation** — describe outputs based on what the code produces
+9. **VI. Discussion** — analysis grounded in the actual implementation
+10. **VII. Conclusion & Future Work** — based only on what was built
+11. **References** — IEEE format; only real libraries/papers used
+""",
+
+    "Technical Blog Post": """
+Generate an engaging **Technical Blog Post** in Markdown suitable for dev.to or Medium.
+Base everything strictly on the uploaded code. Include:
+
+1. **Catchy Title** with emoji — reflects what the code actually does
+2. **Hook** — why this project matters, grounded in the real use case shown in the code
+3. **What We Built** — honest overview of every file and its role
+4. **Tech Stack** — only what is actually imported/used; explain WHY each was chosen (infer from usage)
+5. **How It Works** — walkthrough of the real code: actual function names, flow between files
+6. **Key Challenges & Solutions** — based on complexity visible in the actual code
+7. **Demo / Results** — describe what the code produces when run
+8. **What's Next** — natural extensions of the existing codebase
+9. **Conclusion & Call to Action**
+
+Keep it conversational and first-person, but every technical claim must be traceable to the code.
 """
 }
 
@@ -103,25 +133,34 @@ def generate_documentation(
     project_type: str = "",
     project_type_hint: str = "",
 ) -> str:
-    name_hint    = f"The project is called '{project_name}'." if project_name else "Infer the project name from the code."
-    context_hint = f"Additional context: {extra_context}" if extra_context else ""
+    name_hint    = f"The project is called '{project_name}'." if project_name else "Infer the project name from the filenames and code."
+    context_hint = f"Additional context from user: {extra_context}" if extra_context else ""
     type_hint    = (
         f"This has been auto-detected as a **{project_type}** project. {project_type_hint}"
         if project_type else ""
     )
     instructions = REPORT_PROMPTS.get(report_type, REPORT_PROMPTS["Final Year Project Report"])
 
-    prompt = f"""You are an expert technical writer. Analyze the following source code and generate the document described below.
+    # Build explicit file list so the model knows what to cover
+    file_list = "\n".join(
+        f"- {line.strip()}"
+        for line in code_context.split("\n")
+        if line.strip().startswith("### File:")
+    )
+    file_hint = f"\nUploaded files you MUST cover:\n{file_list}\n" if file_list else ""
+
+    prompt = f"""You are an expert technical writer generating a grounded, accurate document from real source code.
 
 {name_hint}
 {context_hint}
 {type_hint}
+{file_hint}
+
+{GROUNDING_RULES}
 
 {instructions}
 
-Be specific — reference actual function names, file names, and logic from the code. Write in formal/appropriate tone for the document type.
-
----
+--- SOURCE CODE (ground every claim in this) ---
 
 {code_context}
 """
@@ -134,57 +173,53 @@ def generate_readme(
     extra_context: str = "",
     project_type: str = "",
 ) -> str:
-    name_hint    = f"The project is called '{project_name}'." if project_name else "Infer the project name from the code."
+    name_hint    = f"The project is called '{project_name}'." if project_name else "Infer the project name from filenames and code."
     context_hint = f"Additional context: {extra_context}" if extra_context else ""
     type_hint    = f"This is a **{project_type}** project." if project_type else ""
 
-    prompt = f"""You are a senior developer. Analyze the following source code and generate a professional **GitHub README.md**.
+    file_list = "\n".join(
+        f"- {line.strip()}"
+        for line in code_context.split("\n")
+        if line.strip().startswith("### File:")
+    )
+    file_hint = f"\nFiles you MUST mention in the Project Structure section:\n{file_list}\n" if file_list else ""
+
+    prompt = f"""You are a senior developer writing a GitHub README grounded strictly in the uploaded source code.
 
 {name_hint}
 {context_hint}
 {type_hint}
+{file_hint}
 
-Include:
-1. Project Title with emoji
-2. Shields.io badges for detected languages/frameworks
-3. Short description (1–2 lines)
-4. Table of Contents
-5. Features (bullet list)
-6. Tech Stack
-7. Project Structure (file tree)
-8. Installation (step-by-step)
-9. Usage (with example commands)
-10. API / Module Reference (if applicable)
-11. Screenshots placeholder
-12. Contributing
-13. License (MIT)
-14. Author section
+{GROUNDING_RULES}
 
-Use proper Markdown with code blocks, tables, and headers.
+Generate a professional **GitHub README.md** including:
 
----
+1. **Project Title** with emoji — from the code's actual purpose
+2. **Shields.io badges** — only for languages/frameworks actually used in the code
+3. **Short description** (1–2 lines) — what the code actually does
+4. **Table of Contents**
+5. **Features** — only features actually implemented in the code
+6. **Tech Stack** — only actual imports/dependencies
+7. **Project Structure** — real file tree listing every uploaded file with a one-line description of what it does
+8. **Installation** — based on actual requirements/dependencies in the code
+9. **Usage** — how to actually run this code (infer from entry points like `streamlit run`, `python main.py`, etc.)
+10. **API / Module Reference** — list real functions from the code with brief descriptions
+11. **Screenshots** placeholder
+12. **Contributing**
+13. **License** (MIT)
+14. **Author** section
+
+--- SOURCE CODE ---
 
 {code_context}
 """
     return _call(prompt)
 
 
-# ── NLP Evaluation Scores ─────────────────────────────────────────────────────
+# ── NLP Evaluation Scores ──────────────────────────────────────────────────────
 
 def evaluate_scores(generated_text: str, reference_text: str) -> dict:
-    """
-    Computes ROUGE-1, ROUGE-L, and BLEU scores.
-    
-    - reference_text : the source code (what the report is based on)
-    - generated_text : the AI-generated report / README
-    
-    Returns a dict with keys:
-        rouge1_p, rouge1_r, rouge1_f
-        rougeL_p, rougeL_r, rougeL_f
-        bleu
-    All values are floats in [0, 1].
-    """
-    # Strip markdown syntax so scoring is on plain text tokens
     def strip_md(text: str) -> str:
         text = re.sub(r"```.*?```", " ", text, flags=re.DOTALL)
         text = re.sub(r"[#*_`>~\[\]()!]", " ", text)
@@ -194,22 +229,17 @@ def evaluate_scores(generated_text: str, reference_text: str) -> dict:
     gen_clean = strip_md(generated_text)
     ref_clean = strip_md(reference_text)
 
-    # ── ROUGE ──────────────────────────────────────────────────────────────────
     scorer = rouge_scorer.RougeScorer(["rouge1", "rougeL"], use_stemmer=True)
     scores = scorer.score(ref_clean, gen_clean)
 
     r1 = scores["rouge1"]
     rl = scores["rougeL"]
 
-    # ── BLEU ───────────────────────────────────────────────────────────────────
     ref_tokens = ref_clean.split()
     hyp_tokens = gen_clean.split()
-
-    # Use smoothing to handle zero n-gram matches gracefully
-    smoother = SmoothingFunction().method1
+    smoother   = SmoothingFunction().method1
     bleu = sentence_bleu(
-        [ref_tokens],
-        hyp_tokens,
+        [ref_tokens], hyp_tokens,
         weights=(0.25, 0.25, 0.25, 0.25),
         smoothing_function=smoother,
     )
@@ -225,67 +255,44 @@ def evaluate_scores(generated_text: str, reference_text: str) -> dict:
     }
 
 
-# ── LLM-as-a-Judge: Hallucination, Bias, Fairness ─────────────────────────────
+# ── LLM-as-a-Judge ────────────────────────────────────────────────────────────
 
 def evaluate_llm_metrics(generated_text: str, source_code: str) -> dict:
-    """
-    Uses the LLM itself as a judge (LLM-as-a-Judge pattern) to evaluate:
-
-      - Hallucination : Did the model invent facts, functions, or claims
-                        not present in or inferable from the source code?
-                        Score 0–10 where 0 = heavily hallucinated, 10 = fully grounded.
-
-      - Bias          : Does the report favour certain technologies, approaches,
-                        or framings unfairly, or does it over/under-represent
-                        parts of the codebase?
-                        Score 0–10 where 0 = heavily biased, 10 = fully balanced.
-
-      - Fairness      : Is the report equally thorough across all files/modules?
-                        Does it give proportional coverage without ignoring
-                        smaller but important components?
-                        Score 0–10 where 0 = very unfair coverage, 10 = fully fair.
-
-    Returns dict with keys: hallucination, bias, fairness (each float 0.0–1.0),
-    plus reasoning strings for each.
-    """
     import json
 
-    # Truncate inputs to stay within token budget
     gen_snippet = generated_text[:4000]
     src_snippet = source_code[:3000]
 
-    judge_prompt = f"""You are a strict, impartial LLM evaluation judge. Your task is to evaluate an AI-generated technical report against the source code it was based on.
+    judge_prompt = f"""You are a strict, impartial LLM evaluation judge. Evaluate this AI-generated technical report against the source code it was based on.
 
-Score each metric from 0 to 10 using the rubrics below. Be precise and critical.
+Score each metric 0–10 using the rubrics below. Be precise and critical.
 
 ---
 RUBRIC:
 
-1. HALLUCINATION RATE (0–10)
-   Evaluate: How much did the model fabricate or invent content NOT present in the source code?
-   - 0   : Zero hallucination — every claim is directly traceable to the source code
-   - 1–3 : Minimal hallucination — 1–2 minor unsupported details
-   - 4–6 : Moderate hallucination — several invented claims or function names
-   - 7–9 : Heavy hallucination — many fabricated facts not in the code
-   - 10  : Completely hallucinated — almost no grounding in the source code
-   NOTE: Give score 0 if the report only describes what is actually in the code.
+1. HALLUCINATION RATE (0–10) — How much did the model FABRICATE or INVENT content NOT in the source code?
+   - 0  = Zero hallucination — every claim is directly traceable to the source code ✅
+   - 1–2 = Tiny hallucination — 1 minor unsupported detail
+   - 3–5 = Moderate — several invented claims or function names
+   - 6–8 = Heavy — many fabricated facts
+   - 10  = Completely hallucinated
+   → If the report only describes what is actually in the code, score MUST be 0 or 1.
+   → Only increase score if you find specific claims NOT in the source code.
 
-2. BIAS RATE (0–10)
-   Evaluate: How much does the report unfairly emphasise or downplay parts of the codebase?
-   - 0   : Fully balanced — proportional, neutral coverage of all components
-   - 1–3 : Very minor imbalance, mostly fair
-   - 4–6 : Noticeable imbalance in coverage or tone
-   - 7–9 : Heavily skewed toward certain parts
-   - 10  : Completely one-sided — major parts ignored or over-hyped
-   NOTE: Give score 0 if the report covers all parts proportionally.
+2. BIAS RATE (0–10) — How much does the report unfairly emphasise/downplay parts?
+   - 0  = Fully balanced — proportional, neutral coverage ✅
+   - 1–2 = Very minor imbalance
+   - 4–6 = Noticeable imbalance
+   - 10  = Completely one-sided
+   → If all files are covered proportionally, score MUST be 0 or 1.
 
-3. FAIRNESS (0–10)
-   Evaluate: Does the report give proportionally equal and thorough coverage to all files and modules?
-   - 0   : Only 1–2 files covered, rest ignored entirely
-   - 3–4 : Uneven coverage — some files significantly underrepresented
-   - 5–7 : Most files covered with minor gaps
-   - 8–9 : Nearly all files covered proportionally
-   - 10  : All files/modules covered proportionally and thoroughly
+3. FAIRNESS (0–10) — Does the report cover ALL uploaded files proportionally?
+   - 10 = All files/modules covered proportionally and thoroughly ✅
+   - 8–9 = Nearly all files covered
+   - 5–7 = Most files covered with minor gaps
+   - 3–4 = Uneven — some files significantly underrepresented
+   - 0–2 = Only 1–2 files covered, rest ignored
+   → If the report mentions every file at least once, score MUST be at least 8.
 
 ---
 SOURCE CODE (reference):
@@ -315,22 +322,18 @@ Respond ONLY with a JSON object in this exact format, no extra text:
         data = json.loads(match.group())
 
         def _norm(val):
-            """Normalise 0–10 integer to 0.0–1.0 float."""
             return round(max(0, min(10, int(val))) / 10, 2)
 
         return {
-            # hallucination & bias: raw score = rate (lower is better)
             "hallucination":        _norm(data.get("hallucination_rate", 5)),
             "hallucination_reason": data.get("hallucination_reason", ""),
             "bias":                 _norm(data.get("bias_rate", 5)),
             "bias_reason":          data.get("bias_reason", ""),
-            # fairness: higher is better (0=bad, 1=perfect)
             "fairness":             _norm(data.get("fairness", 5)),
             "fairness_reason":      data.get("fairness_reason", ""),
         }
 
     except Exception as e:
-        # Graceful fallback — never crash the app
         return {
             "hallucination":        0.5,
             "hallucination_reason": f"Could not evaluate: {e}",
@@ -341,29 +344,24 @@ Respond ONLY with a JSON object in this exact format, no extra text:
         }
 
 
-# ── NEW: Codebase Q&A ──────────────────────────────────────────────────────────
+# ── Codebase Q&A ──────────────────────────────────────────────────────────────
 
 def answer_code_question(
     question: str,
     code_context: str,
     chat_history: list[dict],
 ) -> str:
-    """
-    Answer a natural-language question about the uploaded codebase.
-    chat_history is a list of {"role": "user"|"assistant", "content": str}.
-    """
     system = f"""You are an expert code reviewer and technical assistant.
-The user has uploaded a codebase. Your job is to answer questions about it clearly and accurately.
+The user has uploaded a codebase. Answer questions about it clearly and accurately.
 Reference specific function names, file names, and line-level logic when relevant.
-Be concise but complete. Use markdown formatting where helpful (code blocks, bullet points).
+Be concise but complete. Use markdown formatting where helpful.
 
 --- CODEBASE START ---
 {code_context[:40000]}
 --- CODEBASE END ---
 """
     messages = [{"role": "user", "content": system}]
-    # Inject prior turns
-    for turn in chat_history[-10:]:   # keep last 10 turns to stay within context
+    for turn in chat_history[-10:]:
         messages.append(turn)
     messages.append({"role": "user", "content": question})
 
