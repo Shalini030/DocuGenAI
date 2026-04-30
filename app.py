@@ -17,7 +17,6 @@ html, body, [class*="css"] {
     font-family: 'Space Grotesk', sans-serif;
 }
 
-/* Stat cards */
 .stat-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -56,7 +55,6 @@ html, body, [class*="css"] {
 .stat-value { font-size: 28px; font-weight: 700; color: #f1f5f9; line-height: 1; }
 .stat-label { font-size: 11px; color: #94a3b8; margin-top: 4px; letter-spacing: 0.05em; text-transform: uppercase; }
 
-/* Language badge row */
 .lang-badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 24px 0; }
 .lang-badge {
     background: #1e293b;
@@ -69,7 +67,6 @@ html, body, [class*="css"] {
     font-family: 'JetBrains Mono', monospace;
 }
 
-/* Report type cards */
 .rtype-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -85,16 +82,12 @@ html, body, [class*="css"] {
     cursor: pointer;
     transition: all 0.2s;
 }
-.rtype-card.selected {
-    border-color: #6366f1;
-    background: #1e1b4b;
-}
+.rtype-card.selected { border-color: #6366f1; background: #1e1b4b; }
 .rtype-card:hover { border-color: #4f46e5; }
 .rtype-emoji { font-size: 26px; }
 .rtype-label { font-size: 12px; font-weight: 600; color: #cbd5e1; margin-top: 6px; }
 .rtype-desc  { font-size: 10px; color: #64748b; margin-top: 2px; }
 
-/* Section header */
 .section-header {
     font-size: 13px;
     font-weight: 700;
@@ -113,7 +106,6 @@ html, body, [class*="css"] {
     background: linear-gradient(90deg, #334155, transparent);
 }
 
-/* ── NEW: Quality score bar ────────────────────────────────────────────────── */
 .quality-bar-wrap {
     background: #1e293b;
     border-radius: 999px;
@@ -136,7 +128,6 @@ html, body, [class*="css"] {
     font-family: 'JetBrains Mono', monospace;
 }
 
-/* ── NEW: Project-type badge ───────────────────────────────────────────────── */
 .ptype-badge {
     display: inline-flex;
     align-items: center;
@@ -151,7 +142,6 @@ html, body, [class*="css"] {
     margin-bottom: 16px;
 }
 
-/* ── NEW: Chat bubble styles ───────────────────────────────────────────────── */
 .chat-user {
     background: #1e293b;
     border-left: 3px solid #6366f1;
@@ -170,7 +160,7 @@ html, body, [class*="css"] {
     font-size: 14px;
     color: #cbd5e1;
 }
-/* ── NEW: NLP score metric cards ──────────────────────────────────────────── */
+
 .score-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
@@ -202,7 +192,6 @@ html, body, [class*="css"] {
 # ─── Header ────────────────────────────────────────────────────────────────────
 st.markdown("## 📄 AI Project Report Generator")
 st.markdown("<p style='color:#94a3b8;margin-top:-10px'>Upload your code → get a full report + GitHub README instantly</p>", unsafe_allow_html=True)
-
 st.divider()
 
 # ─── File Upload ───────────────────────────────────────────────────────────────
@@ -216,7 +205,7 @@ uploaded_files = st.file_uploader(
     label_visibility="collapsed"
 )
 
-# ─── Parse files & build stats ─────────────────────────────────────────────────
+# ─── KEY FIX: Parse files into session_state so they survive reruns ────────────
 LANG_MAP = {
     "py":"Python","js":"JavaScript","ts":"TypeScript","jsx":"React JSX",
     "tsx":"React TSX","html":"HTML","css":"CSS","java":"Java","c":"C",
@@ -224,27 +213,50 @@ LANG_MAP = {
     "rb":"Ruby","kt":"Kotlin","swift":"Swift","md":"Markdown","txt":"Text"
 }
 
-all_code = {}
-
+# Build a stable key from uploaded file names+sizes to detect changes
 if uploaded_files:
-    for uf in uploaded_files:
-        if uf.name.endswith(".zip"):
-            with zipfile.ZipFile(io.BytesIO(uf.read()), "r") as z:
-                for name in z.namelist():
-                    if name.endswith("/") or "__pycache__" in name or name.startswith("."):
-                        continue
-                    try:
-                        content = z.read(name).decode("utf-8", errors="ignore")
-                        if content.strip():
-                            all_code[name] = content
-                    except Exception:
-                        pass
-        else:
-            try:
-                content = uf.read().decode("utf-8", errors="ignore")
-                all_code[uf.name] = content
-            except Exception:
-                pass
+    upload_signature = sorted([(f.name, f.size) for f in uploaded_files])
+else:
+    upload_signature = []
+
+# Only re-parse when the uploaded files actually change
+if upload_signature != st.session_state.get("upload_signature"):
+    parsed = {}
+    if uploaded_files:
+        for uf in uploaded_files:
+            raw = uf.read()  # read ONCE here, immediately
+            if uf.name.endswith(".zip"):
+                try:
+                    with zipfile.ZipFile(io.BytesIO(raw), "r") as z:
+                        for name in z.namelist():
+                            if name.endswith("/") or "__pycache__" in name or name.startswith("."):
+                                continue
+                            try:
+                                content = z.read(name).decode("utf-8", errors="ignore")
+                                if content.strip():
+                                    parsed[name] = content
+                            except Exception:
+                                pass
+                except Exception as e:
+                    st.warning(f"Could not open zip '{uf.name}': {e}")
+            else:
+                try:
+                    content = raw.decode("utf-8", errors="ignore")
+                    if content.strip():
+                        parsed[uf.name] = content
+                    else:
+                        st.warning(f"'{uf.name}' appears empty, skipping.")
+                except Exception as e:
+                    st.warning(f"Could not read '{uf.name}': {e}")
+
+    st.session_state["all_code"]          = parsed
+    st.session_state["upload_signature"]  = upload_signature
+    # Reset Q&A context when files change
+    st.session_state["chat_history"]      = []
+    st.session_state["qa_code_context"]   = ""
+
+# Always read from session_state — survives every rerun
+all_code: dict = st.session_state.get("all_code", {})
 
 # ─── Stats Dashboard ───────────────────────────────────────────────────────────
 if all_code:
@@ -252,14 +264,12 @@ if all_code:
     total_lines = sum(len(c.split("\n")) for c in all_code.values())
     total_chars = sum(len(c) for c in all_code.values())
 
-    # Count functions (def / function / func / fn / public ... void/int etc.)
     func_pattern = re.compile(
         r'^\s*(def |function |func |fn |public |private |protected |async function )',
         re.MULTILINE
     )
     total_funcs = sum(len(func_pattern.findall(c)) for c in all_code.values())
 
-    # Detect languages
     detected_langs = {}
     for fname in all_code:
         ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
@@ -301,20 +311,17 @@ if all_code:
 
     if detected_langs:
         badges = "".join(
-            f'<span class="lang-badge">{"●"} {lang} <span style="color:#64748b">({count})</span></span>'
+            f'<span class="lang-badge">● {lang} <span style="color:#64748b">({count})</span></span>'
             for lang, count in sorted(detected_langs.items(), key=lambda x: -x[1])
         )
         st.markdown(f'<div class="lang-badges">{badges}</div>', unsafe_allow_html=True)
 
-    # File list expander
     with st.expander(f"📂 View all {total_files} detected files"):
         for fname, code in all_code.items():
             lc = len(code.split("\n"))
             st.markdown(f"`{fname}` — {lc} lines")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # NEW FEATURE 1 — Auto-detect Project Type
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Project Type ──────────────────────────────────────────────────────────
     project_type, project_type_hint = detect_project_type(all_code)
 
     st.markdown('<div class="section-header">🔍 Project Type</div>', unsafe_allow_html=True)
@@ -330,17 +337,14 @@ if all_code:
         unsafe_allow_html=True
     )
     if project_type_hint:
-        st.markdown(f"<p style='color:#64748b;font-size:12px;margin:-8px 0 12px 4px'>{project_type_hint}</p>",
-                    unsafe_allow_html=True)
+        st.markdown(f"<p style='color:#64748b;font-size:12px;margin:-8px 0 12px 4px'>{project_type_hint}</p>", unsafe_allow_html=True)
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # NEW FEATURE 2 — Code Quality Score
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Code Quality ──────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">🏆 Code Quality Score</div>', unsafe_allow_html=True)
 
-    quality = code_quality_score(all_code)
-    score   = quality["score"]
-    grade   = quality["grade"]
+    quality   = code_quality_score(all_code)
+    score     = quality["score"]
+    grade     = quality["grade"]
 
     GRADE_COLOR = {"A": "#10b981", "B": "#06b6d4", "C": "#f59e0b", "D": "#f97316", "F": "#ef4444"}
     bar_color   = GRADE_COLOR.get(grade, "#6366f1")
@@ -357,7 +361,6 @@ if all_code:
         </div>
         """, unsafe_allow_html=True)
 
-        # Breakdown bars
         for label, (s, mx, detail) in quality["breakdown"].items():
             pct = int((s / mx) * 100)
             st.markdown(f"""
@@ -382,9 +385,7 @@ if all_code:
         for smell in quality["smells"]:
             st.markdown(f"- {smell}")
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # NEW FEATURE 3 — Auto-generated Mermaid Diagram
-    # ══════════════════════════════════════════════════════════════════════════
+    # ── Mermaid Diagram ───────────────────────────────────────────────────────
     mermaid_src = build_mermaid_diagram(all_code)
     if mermaid_src:
         st.markdown('<div class="section-header">🗺️ Function Call Diagram</div>', unsafe_allow_html=True)
@@ -392,6 +393,10 @@ if all_code:
             st.markdown(mermaid_src)
             st.caption("💡 Copy the block above and paste it at [mermaid.live](https://mermaid.live) to view the interactive diagram.")
 
+else:
+    # Placeholders so layout doesn't collapse before upload
+    project_type      = ""
+    project_type_hint = ""
 
 # ─── Report Type Selector ──────────────────────────────────────────────────────
 st.markdown('<div class="section-header">📋 Report Type</div>', unsafe_allow_html=True)
@@ -418,26 +423,25 @@ with st.expander("✏️ Optional: Override Project Info"):
     custom_name = st.text_input("Project Title (leave blank to auto-detect)")
     custom_desc = st.text_area("Additional Context / Description (optional)")
 
-# ─── Generate ──────────────────────────────────────────────────────────────────
+# ─── Generate Button — ALWAYS RENDERED, never inside if all_code ───────────────
 st.markdown("")
 generate_btn = st.button(
     "🚀 Generate Report & README",
-    disabled=not all_code,
+    disabled=(not all_code),          # greyed out until files loaded
     use_container_width=True,
     type="primary"
 )
 
-if generate_btn:
+if generate_btn and all_code:
     combined_code = ""
     for fname, code in all_code.items():
         combined_code += f"\n\n### File: {fname}\n```\n{code[:3000]}\n```"
 
-    project_name   = custom_name.strip() if uploaded_files and custom_name.strip() else None
-    extra_context  = custom_desc.strip()  if uploaded_files and custom_desc.strip()  else ""
+    project_name  = custom_name.strip() if custom_name.strip() else None
+    extra_context = custom_desc.strip() if custom_desc.strip() else ""
 
-    # Pull detected project type from earlier analysis (may be unset if no files)
-    ptype      = project_type      if all_code else ""
-    ptype_hint = project_type_hint if all_code else ""
+    ptype      = project_type
+    ptype_hint = project_type_hint
 
     with st.spinner(f"🤖 Generating {report_type}..."):
         report = generate_documentation(
@@ -454,7 +458,7 @@ if generate_btn:
         st.markdown('<div class="section-header">📗 README Preview</div>', unsafe_allow_html=True)
         st.markdown(readme)
 
-    # ── NLP Evaluation Scores ──────────────────────────────────────────────────
+    # ── Evaluation Scores ──────────────────────────────────────────────────────
     st.markdown('<div class="section-header">📐 Model Evaluation Scores</div>', unsafe_allow_html=True)
     st.markdown(
         "<p style='color:#94a3b8;font-size:12px;margin:-8px 0 12px 0'>"
@@ -464,23 +468,23 @@ if generate_btn:
         unsafe_allow_html=True,
     )
 
-    def _score_color(val: float) -> str:
-        if val >= 0.5:  return "#10b981"
-        if val >= 0.3:  return "#f59e0b"
+    def _score_color(val):
+        if val >= 0.5: return "#10b981"
+        if val >= 0.3: return "#f59e0b"
         return "#ef4444"
 
-    def _score_label(val: float) -> str:
-        if val >= 0.5:  return "Good"
-        if val >= 0.3:  return "Fair"
+    def _score_label(val):
+        if val >= 0.5: return "Good"
+        if val >= 0.3: return "Fair"
         return "Low"
 
     with st.spinner("📊 Computing evaluation scores..."):
-        report_scores = evaluate_scores(report,  combined_code)
-        readme_scores  = evaluate_scores(readme,  combined_code)
+        report_scores = evaluate_scores(report, combined_code)
+        readme_scores  = evaluate_scores(readme, combined_code)
 
     with st.spinner("🧠 Running LLM-as-a-Judge evaluation..."):
         report_llm = evaluate_llm_metrics(report, combined_code)
-        readme_llm  = evaluate_llm_metrics(readme,  combined_code)
+        readme_llm  = evaluate_llm_metrics(readme, combined_code)
 
     llm_scores_map = {"Report": report_llm, "README": readme_llm}
 
@@ -491,20 +495,19 @@ if generate_btn:
         (score_tab2, readme_scores,  "README"),
     ]:
         with tab:
-            # ── Standard metrics (higher = better) ────────────────────────────
             metrics = [
-                ("ROUGE-1 P",  sc["rouge1_p"], "Precision",  _score_color, _score_label),
-                ("ROUGE-1 R",  sc["rouge1_r"], "Recall",     _score_color, _score_label),
-                ("ROUGE-1 F",  sc["rouge1_f"], "F1-Score",   _score_color, _score_label),
-                ("ROUGE-L P",  sc["rougeL_p"], "Precision",  _score_color, _score_label),
-                ("ROUGE-L R",  sc["rougeL_r"], "Recall",     _score_color, _score_label),
-                ("ROUGE-L F",  sc["rougeL_f"], "F1-Score",   _score_color, _score_label),
-                ("BLEU",       sc["bleu"],      "4-gram",     _score_color, _score_label),
+                ("ROUGE-1 P", sc["rouge1_p"], "Precision"),
+                ("ROUGE-1 R", sc["rouge1_r"], "Recall"),
+                ("ROUGE-1 F", sc["rouge1_f"], "F1-Score"),
+                ("ROUGE-L P", sc["rougeL_p"], "Precision"),
+                ("ROUGE-L R", sc["rougeL_r"], "Recall"),
+                ("ROUGE-L F", sc["rougeL_f"], "F1-Score"),
+                ("BLEU",      sc["bleu"],      "4-gram"),
             ]
             cards_html = '<div class="score-grid">'
-            for name, val, sublabel, color_fn, label_fn in metrics:
-                color = color_fn(val)
-                badge = label_fn(val)
+            for name, val, sublabel in metrics:
+                color = _score_color(val)
+                badge = _score_label(val)
                 pct   = f"{val:.2%}"
                 cards_html += f"""
                 <div class="score-card">
@@ -516,28 +519,24 @@ if generate_btn:
             cards_html += "</div>"
             st.markdown(cards_html, unsafe_allow_html=True)
 
-            # ── LLM-as-a-Judge metrics ────────────────────────────────────────
             st.markdown(
                 "<div style='font-size:11px;color:#64748b;margin:4px 0 6px 0;letter-spacing:0.06em'>"
                 "▸ LLM-AS-A-JUDGE METRICS</div>",
                 unsafe_allow_html=True
             )
             lm = llm_scores_map[label]
-            hal_val  = lm["hallucination"]   # lower is better
-            bias_val = lm["bias"]             # lower is better
-            fair_val = lm["fairness"]         # higher is better
+            hal_val  = lm["hallucination"]
+            bias_val = lm["bias"]
+            fair_val = lm["fairness"]
 
-            # Hallucination & Bias: LOWER = better (inverted colors)
             def _inv_color(v):
-                if v <= 0.2: return "#10b981"   # green  = low rate = good
-                if v <= 0.5: return "#f59e0b"   # amber
-                return "#ef4444"                 # red    = high rate = bad
+                if v <= 0.2: return "#10b981"
+                if v <= 0.5: return "#f59e0b"
+                return "#ef4444"
             def _inv_label(v):
                 if v <= 0.2: return "✅ Low"
                 if v <= 0.5: return "⚠️ Medium"
                 return "🔴 High"
-
-            # Fairness: HIGHER = better (normal colors)
             def _llm_color(v):
                 if v >= 0.7: return "#10b981"
                 if v >= 0.4: return "#f59e0b"
@@ -570,7 +569,6 @@ if generate_btn:
             </div>"""
             st.markdown(llm_html, unsafe_allow_html=True)
 
-            # Judge reasoning expander
             with st.expander("🧠 Judge Reasoning"):
                 st.markdown(f"""
 | Metric | Score | Direction | Judge's Reasoning |
@@ -579,11 +577,9 @@ if generate_btn:
 | **Bias Rate** | `{bias_val:.0%}` | Lower = better | {lm['bias_reason']} |
 | **Fairness** | `{fair_val:.0%}` | Higher = better | {lm['fairness_reason']} |
 
-> Evaluated by the LLM itself acting as an impartial judge (LLM-as-a-Judge pattern).
-> **Hallucination & Bias: 0% = perfect. Fairness: 100% = perfect.**
+> Evaluated by the LLM itself (LLM-as-a-Judge). Hallucination & Bias: 0% = perfect. Fairness: 100% = perfect.
 """)
 
-            # Expandable interpretation
             with st.expander(f"ℹ️ How to read {label} scores"):
                 st.markdown(f"""
 | Metric | Type | What it measures | Your score |
@@ -593,13 +589,11 @@ if generate_btn:
 | **ROUGE-1 F1** | Statistical | Harmonic mean of P & R | `{sc['rouge1_f']:.2%}` |
 | **ROUGE-L P** | Statistical | Longest common subsequence precision | `{sc['rougeL_p']:.2%}` |
 | **ROUGE-L R** | Statistical | Longest common subsequence recall | `{sc['rougeL_r']:.2%}` |
-| **ROUGE-L F1** | Statistical | LCS F1 — captures phrase-level overlap | `{sc['rougeL_f']:.2%}` |
-| **BLEU** | Statistical | 4-gram overlap (fluency + faithfulness) | `{sc['bleu']:.2%}` |
-| **Hallucination Rate** | LLM Judge | How much did the model fabricate content not in source code? **(lower = better, 0% = perfect)** | `{llm_scores_map[label]['hallucination']:.0%}` |
-| **Bias Rate** | LLM Judge | How much does coverage unfairly emphasise certain parts? **(lower = better, 0% = perfect)** | `{llm_scores_map[label]['bias']:.0%}` |
-| **Fairness** | LLM Judge | Are all files/modules covered proportionally? **(higher = better, 100% = perfect)** | `{llm_scores_map[label]['fairness']:.0%}` |
-
-> **LLM-as-a-Judge** uses the model itself as an evaluator — the same approach used by RAGAS, DeepEval, and OpenAI Evals. Scores are on a 0–10 scale normalised to 0–100%. Higher is always better for all three.
+| **ROUGE-L F1** | Statistical | LCS F1 | `{sc['rougeL_f']:.2%}` |
+| **BLEU** | Statistical | 4-gram overlap | `{sc['bleu']:.2%}` |
+| **Hallucination Rate** | LLM Judge | Fabricated content not in source **(lower = better)** | `{lm['hallucination']:.0%}` |
+| **Bias Rate** | LLM Judge | Unfair emphasis **(lower = better)** | `{lm['bias']:.0%}` |
+| **Fairness** | LLM Judge | Proportional coverage **(higher = better)** | `{lm['fairness']:.0%}` |
 """)
 
     with st.spinner("📄 Building PDFs..."):
@@ -617,9 +611,7 @@ if generate_btn:
     with c3:
         st.download_button("📥 README.md", readme, file_name="README.md", mime="text/markdown", use_container_width=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# NEW FEATURE 4 — Codebase Q&A Chat
-# ══════════════════════════════════════════════════════════════════════════════
+# ─── Codebase Q&A Chat ─────────────────────────────────────────────────────────
 if all_code:
     st.divider()
     st.markdown('<div class="section-header">💬 Ask Your Codebase</div>', unsafe_allow_html=True)
@@ -630,26 +622,22 @@ if all_code:
         unsafe_allow_html=True
     )
 
-    # Initialise chat history in session state
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # Build combined code for Q&A (larger window than report)
-    if "qa_code_context" not in st.session_state or st.session_state.get("qa_files") != list(all_code.keys()):
+    # Build Q&A context once and cache it
+    if not st.session_state.get("qa_code_context"):
         qa_context = ""
         for fname, code in all_code.items():
             qa_context += f"\n\n### File: {fname}\n```\n{code[:5000]}\n```"
         st.session_state.qa_code_context = qa_context
-        st.session_state.qa_files        = list(all_code.keys())
 
-    # Render existing chat history
     for turn in st.session_state.chat_history:
         if turn["role"] == "user":
             st.markdown(f'<div class="chat-user">🧑 {turn["content"]}</div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="chat-ai">🤖 {turn["content"]}</div>', unsafe_allow_html=True)
 
-    # Input row
     qchat1, qchat2 = st.columns([5, 1])
     with qchat1:
         user_q = st.text_input(
@@ -668,8 +656,8 @@ if all_code:
                 code_context = st.session_state.qa_code_context,
                 chat_history = st.session_state.chat_history,
             )
-        st.session_state.chat_history.append({"role": "user",      "content": user_q.strip()})
-        st.session_state.chat_history.append({"role": "assistant",  "content": answer})
+        st.session_state.chat_history.append({"role": "user",     "content": user_q.strip()})
+        st.session_state.chat_history.append({"role": "assistant", "content": answer})
         st.rerun()
 
     if st.session_state.chat_history:
