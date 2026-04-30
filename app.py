@@ -463,7 +463,7 @@ if generate_btn and all_code:
     st.markdown(
         "<p style='color:#94a3b8;font-size:12px;margin:-8px 0 12px 0'>"
         "ROUGE &amp; BLEU measure n-gram overlap with source code. "
-        "Hallucination, Bias &amp; Fairness are evaluated by the LLM itself acting as an impartial judge (LLM-as-a-Judge)."
+        "Hallucination, Bias &amp; Fairness are evaluated by Google Gemini acting as an independent cross-model judge (LLM-as-a-Judge)."
         "</p>",
         unsafe_allow_html=True,
     )
@@ -577,7 +577,7 @@ if generate_btn and all_code:
 | **Bias Rate** | `{bias_val:.0%}` | Lower = better | {lm['bias_reason']} |
 | **Fairness** | `{fair_val:.0%}` | Higher = better | {lm['fairness_reason']} |
 
-> Evaluated by the LLM itself (LLM-as-a-Judge). Hallucination & Bias: 0% = perfect. Fairness: 100% = perfect.
+> Evaluated by Google Gemini as an independent cross-model judge. Hallucination & Bias: 0% = perfect. Fairness: 100% = perfect.
 """)
 
             with st.expander(f"ℹ️ How to read {label} scores"):
