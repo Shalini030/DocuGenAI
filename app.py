@@ -463,7 +463,7 @@ if generate_btn and all_code:
     st.markdown(
         "<p style='color:#94a3b8;font-size:12px;margin:-8px 0 12px 0'>"
         "ROUGE &amp; BLEU measure n-gram overlap with source code. "
-        "Faithfulness, Bias &amp; Fairness are evaluated by Google Gemini acting as an independent cross-model judge (LLM-as-a-Judge)."
+        "Faithfulness, Bias &amp; Fairness are computed mathematically — no LLM involved."
         "</p>",
         unsafe_allow_html=True,
     )
@@ -482,7 +482,7 @@ if generate_btn and all_code:
         report_scores = evaluate_scores(report, combined_code)
         readme_scores  = evaluate_scores(readme, combined_code)
 
-    with st.spinner("🧠 Running LLM-as-a-Judge evaluation..."):
+    with st.spinner("🧮 Computing faithfulness, bias & fairness..."):
         report_llm = evaluate_llm_metrics(report, combined_code)
         readme_llm  = evaluate_llm_metrics(readme, combined_code)
 
@@ -568,15 +568,18 @@ if generate_btn and all_code:
             </div>"""
             st.markdown(llm_html, unsafe_allow_html=True)
 
-            with st.expander("🧠 Judge Reasoning"):
+            with st.expander("🧮 Calculation Details"):
                 st.markdown(f"""
-| Metric | Score | Direction | Judge's Reasoning |
-|--------|-------|-----------|-------------------|
-| **Faithfulness** | `{faith_val:.0%}` | Higher = better | {lm['hallucination_reason']} |
-| **Bias Rate** | `{bias_val:.0%}` | Lower = better | {lm['bias_reason']} |
-| **Fairness** | `{fair_val:.0%}` | Higher = better | {lm['fairness_reason']} |
+| Metric | Formula | Result | Detail |
+|--------|---------|--------|--------|
+| **Faithfulness** | grounded sentences ÷ total sentences | `{faith_val:.0%}` | {lm['hallucination_reason']} |
+| **Bias Rate** | Coefficient of Variation of per-file mentions | `{bias_val:.0%}` | {lm['bias_reason']} |
+| **Fairness** | files mentioned ÷ total uploaded files | `{fair_val:.0%}` | {lm['fairness_reason']} |
 
-> Evaluated by Google Gemini as an independent cross-model judge. Faithfulness & Fairness: 100% = perfect. Bias: 0% = perfect.
+> All three metrics are **pure mathematics** — no LLM involved.
+> - **Faithfulness**: counts sentences containing a real function/class/import name from source code
+> - **Bias Rate**: CV = σ/μ of per-file mention counts (low CV = balanced = low bias)
+> - **Fairness**: what fraction of your uploaded files are named in the report
 """)
 
             with st.expander(f"ℹ️ How to read {label} scores"):
@@ -590,7 +593,7 @@ if generate_btn and all_code:
 | **Bias Rate** | LLM Judge | Unfair emphasis on certain parts **(lower = better, 0% = fully balanced)** | `{lm['bias']:.0%}` |
 | **Fairness** | LLM Judge | Proportional coverage of all files **(higher = better, 100% = perfect)** | `{lm['fairness']:.0%}` |
 
-> **Faithfulness** = 1 − Hallucination Rate. Used by RAGAS, DeepEval, and OpenAI Evals. All three LLM-Judge metrics are evaluated by Google Gemini as a cross-model independent judge.
+> All 6 metrics are **pure mathematics** — no LLM opinion involved. Faithfulness, Bias & Fairness use identifier extraction + statistical formulas.
 """)
 
     with st.spinner("📄 Building PDFs..."):
