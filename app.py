@@ -463,7 +463,7 @@ if generate_btn and all_code:
     st.markdown(
         "<p style='color:#94a3b8;font-size:12px;margin:-8px 0 12px 0'>"
         "ROUGE &amp; BLEU measure n-gram overlap with source code. "
-        "Hallucination, Bias &amp; Fairness are evaluated by Google Gemini acting as an independent cross-model judge (LLM-as-a-Judge)."
+        "Faithfulness, Bias &amp; Fairness are evaluated by Google Gemini acting as an independent cross-model judge (LLM-as-a-Judge)."
         "</p>",
         unsafe_allow_html=True,
     )
@@ -525,46 +525,49 @@ if generate_btn and all_code:
                 unsafe_allow_html=True
             )
             lm = llm_scores_map[label]
-            hal_val  = lm["hallucination"]
-            bias_val = lm["bias"]
-            fair_val = lm["fairness"]
+            # Faithfulness = 1 - hallucination_rate (higher is always better, like RAGAS)
+            faith_val = round(1.0 - lm["hallucination"], 2)
+            bias_val  = lm["bias"]
+            fair_val  = lm["fairness"]
 
-            def _inv_color(v):
-                if v <= 0.2: return "#10b981"
-                if v <= 0.5: return "#f59e0b"
-                return "#ef4444"
-            def _inv_label(v):
-                if v <= 0.2: return "✅ Low"
-                if v <= 0.5: return "⚠️ Medium"
-                return "🔴 High"
-            def _llm_color(v):
+            def _good_color(v):
+                """Higher = better (faithfulness, fairness)"""
                 if v >= 0.7: return "#10b981"
                 if v >= 0.4: return "#f59e0b"
                 return "#ef4444"
-            def _llm_label(v):
-                if v >= 0.7: return "✅ Good"
-                if v >= 0.4: return "⚠️ Fair"
-                return "🔴 Poor"
+            def _good_label(v):
+                if v >= 0.7: return "✅ High"
+                if v >= 0.4: return "⚠️ Medium"
+                return "🔴 Low"
+            def _bad_color(v):
+                """Lower = better (bias rate)"""
+                if v <= 0.2: return "#10b981"
+                if v <= 0.5: return "#f59e0b"
+                return "#ef4444"
+            def _bad_label(v):
+                if v <= 0.2: return "✅ Low"
+                if v <= 0.5: return "⚠️ Medium"
+                return "🔴 High"
 
             llm_html = f"""
             <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
                 <div class="score-card" style="border-color:#4f46e5">
-                    <div class="score-metric" style="color:{_inv_color(hal_val)}">{hal_val:.0%}</div>
-                    <div class="score-label">Hallucination Rate</div>
-                    <div style="font-size:9px;color:#475569">Lower is Better ↓</div>
-                    <span class="score-badge" style="background:{_inv_color(hal_val)}22;color:{_inv_color(hal_val)}">{_inv_label(hal_val)}</span>
+                    <div class="score-metric" style="color:{_good_color(faith_val)}">{faith_val:.0%}</div>
+                    <div class="score-label">Faithfulness</div>
+                    <div style="font-size:9px;color:#475569">Higher is Better ↑</div>
+                    <span class="score-badge" style="background:{_good_color(faith_val)}22;color:{_good_color(faith_val)}">{_good_label(faith_val)}</span>
                 </div>
                 <div class="score-card" style="border-color:#4f46e5">
-                    <div class="score-metric" style="color:{_inv_color(bias_val)}">{bias_val:.0%}</div>
+                    <div class="score-metric" style="color:{_bad_color(bias_val)}">{bias_val:.0%}</div>
                     <div class="score-label">Bias Rate</div>
                     <div style="font-size:9px;color:#475569">Lower is Better ↓</div>
-                    <span class="score-badge" style="background:{_inv_color(bias_val)}22;color:{_inv_color(bias_val)}">{_inv_label(bias_val)}</span>
+                    <span class="score-badge" style="background:{_bad_color(bias_val)}22;color:{_bad_color(bias_val)}">{_bad_label(bias_val)}</span>
                 </div>
                 <div class="score-card" style="border-color:#4f46e5">
-                    <div class="score-metric" style="color:{_llm_color(fair_val)}">{fair_val:.0%}</div>
+                    <div class="score-metric" style="color:{_good_color(fair_val)}">{fair_val:.0%}</div>
                     <div class="score-label">Fairness</div>
                     <div style="font-size:9px;color:#475569">Higher is Better ↑</div>
-                    <span class="score-badge" style="background:{_llm_color(fair_val)}22;color:{_llm_color(fair_val)}">{_llm_label(fair_val)}</span>
+                    <span class="score-badge" style="background:{_good_color(fair_val)}22;color:{_good_color(fair_val)}">{_good_label(fair_val)}</span>
                 </div>
             </div>"""
             st.markdown(llm_html, unsafe_allow_html=True)
@@ -573,11 +576,11 @@ if generate_btn and all_code:
                 st.markdown(f"""
 | Metric | Score | Direction | Judge's Reasoning |
 |--------|-------|-----------|-------------------|
-| **Hallucination Rate** | `{hal_val:.0%}` | Lower = better | {lm['hallucination_reason']} |
+| **Faithfulness** | `{faith_val:.0%}` | Higher = better | {lm['hallucination_reason']} |
 | **Bias Rate** | `{bias_val:.0%}` | Lower = better | {lm['bias_reason']} |
 | **Fairness** | `{fair_val:.0%}` | Higher = better | {lm['fairness_reason']} |
 
-> Evaluated by Google Gemini as an independent cross-model judge. Hallucination & Bias: 0% = perfect. Fairness: 100% = perfect.
+> Evaluated by Google Gemini as an independent cross-model judge. Faithfulness & Fairness: 100% = perfect. Bias: 0% = perfect.
 """)
 
             with st.expander(f"ℹ️ How to read {label} scores"):
@@ -591,9 +594,11 @@ if generate_btn and all_code:
 | **ROUGE-L R** | Statistical | Longest common subsequence recall | `{sc['rougeL_r']:.2%}` |
 | **ROUGE-L F1** | Statistical | LCS F1 | `{sc['rougeL_f']:.2%}` |
 | **BLEU** | Statistical | 4-gram overlap | `{sc['bleu']:.2%}` |
-| **Hallucination Rate** | LLM Judge | Fabricated content not in source **(lower = better)** | `{lm['hallucination']:.0%}` |
-| **Bias Rate** | LLM Judge | Unfair emphasis **(lower = better)** | `{lm['bias']:.0%}` |
-| **Fairness** | LLM Judge | Proportional coverage **(higher = better)** | `{lm['fairness']:.0%}` |
+| **Faithfulness** | LLM Judge | How grounded is the report in the source code? **(higher = better, 100% = fully grounded)** | `{faith_val:.0%}` |
+| **Bias Rate** | LLM Judge | Unfair emphasis on certain parts **(lower = better, 0% = fully balanced)** | `{lm['bias']:.0%}` |
+| **Fairness** | LLM Judge | Proportional coverage of all files **(higher = better, 100% = perfect)** | `{lm['fairness']:.0%}` |
+
+> **Faithfulness** = 1 − Hallucination Rate. Used by RAGAS, DeepEval, and OpenAI Evals. All three LLM-Judge metrics are evaluated by Google Gemini as a cross-model independent judge.
 """)
 
     with st.spinner("📄 Building PDFs..."):
