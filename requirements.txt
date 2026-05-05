@@ -1,5 +1,4 @@
 groq
-google-generativeai
 streamlit
 reportlab
 rouge-score
