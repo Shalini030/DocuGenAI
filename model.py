@@ -21,7 +21,7 @@ client = Groq(api_key=GROQ_API_KEY)
 MODEL = "llama-3.3-70b-versatile"
 
 
-def _call(prompt: str, max_tokens: int = 4096) -> str:
+def _call(prompt: str, max_tokens: int = 8000) -> str:
     response = client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
