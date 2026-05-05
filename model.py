@@ -15,7 +15,7 @@ except LookupError:
     nltk.download("punkt_tab", quiet=True)
 
 # ✅ Paste your Groq API key here (free at console.groq.com)
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 
 client = Groq(api_key=GROQ_API_KEY)
 MODEL = "llama-3.3-70b-versatile"
