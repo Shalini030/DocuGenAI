@@ -163,7 +163,7 @@ html, body, [class*="css"] {
 
 .score-grid {
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 10px;
     margin: 14px 0 20px 0;
 }
@@ -496,13 +496,9 @@ if generate_btn and all_code:
     ]:
         with tab:
             metrics = [
-                ("ROUGE-1 P", sc["rouge1_p"], "Precision"),
-                ("ROUGE-1 R", sc["rouge1_r"], "Recall"),
-                ("ROUGE-1 F", sc["rouge1_f"], "F1-Score"),
-                ("ROUGE-L P", sc["rougeL_p"], "Precision"),
-                ("ROUGE-L R", sc["rougeL_r"], "Recall"),
-                ("ROUGE-L F", sc["rougeL_f"], "F1-Score"),
-                ("BLEU",      sc["bleu"],      "4-gram"),
+                ("ROUGE-1", sc["rouge1_f"], "F1-Score"),
+                ("ROUGE-L", sc["rougeL_f"], "F1-Score"),
+                ("BLEU",    sc["bleu"],     "4-gram"),
             ]
             cards_html = '<div class="score-grid">'
             for name, val, sublabel in metrics:
@@ -587,13 +583,9 @@ if generate_btn and all_code:
                 st.markdown(f"""
 | Metric | Type | What it measures | Your score |
 |--------|------|-----------------|------------|
-| **ROUGE-1 P** | Statistical | % of report words found in source code | `{sc['rouge1_p']:.2%}` |
-| **ROUGE-1 R** | Statistical | % of source code words covered in report | `{sc['rouge1_r']:.2%}` |
-| **ROUGE-1 F1** | Statistical | Harmonic mean of P & R | `{sc['rouge1_f']:.2%}` |
-| **ROUGE-L P** | Statistical | Longest common subsequence precision | `{sc['rougeL_p']:.2%}` |
-| **ROUGE-L R** | Statistical | Longest common subsequence recall | `{sc['rougeL_r']:.2%}` |
-| **ROUGE-L F1** | Statistical | LCS F1 | `{sc['rougeL_f']:.2%}` |
-| **BLEU** | Statistical | 4-gram overlap | `{sc['bleu']:.2%}` |
+| **ROUGE-1** | Statistical | F1 overlap of individual words between report and source code | `{sc['rouge1_f']:.2%}` |
+| **ROUGE-L** | Statistical | Longest common subsequence F1 — captures phrase-level overlap | `{sc['rougeL_f']:.2%}` |
+| **BLEU** | Statistical | 4-gram overlap measuring fluency and faithfulness | `{sc['bleu']:.2%}` |
 | **Faithfulness** | LLM Judge | How grounded is the report in the source code? **(higher = better, 100% = fully grounded)** | `{faith_val:.0%}` |
 | **Bias Rate** | LLM Judge | Unfair emphasis on certain parts **(lower = better, 0% = fully balanced)** | `{lm['bias']:.0%}` |
 | **Fairness** | LLM Judge | Proportional coverage of all files **(higher = better, 100% = perfect)** | `{lm['fairness']:.0%}` |
